@@ -79,6 +79,13 @@ ke mailbox karakter. Hanya `MATERIAL_ESSENCE` dengan `proc_type=0` dari
 ditolak. Status `mail-accepted` berarti surat diterima server, belum berarti
 lampirannya sudah diambil. Periksa mailbox dan tas karakter setelah mengirim.
 
+Halaman utama PWPanel menampilkan status **Online/Offline** dan jumlah pemain
+online. Admin dapat mengatur tambahan angka dummy di **Pemain Online**; angka
+asli dan tambahan tetap terlihat terpisah di Admin Panel. Daftar kontrol map
+memakai nama map (misalnya World Utama dan Celestial Vale) dengan alias server
+tetap ditampilkan. Paket `web.tar.gz` lokal dan checksum-nya harus diperbarui
+bersama source PWPanel sebelum instalasi ulang.
+
 ## Konfigurasi Proxmox yang diuji
 
 VM 100 memakai Ubuntu Server 20.04.6, BIOS SeaBIOS, machine `i440fx`, SCSI
