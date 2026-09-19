@@ -1,0 +1,22 @@
+# Public repository contains installer source and documentation only.
+/*.iso
+/*.tar.gz
+/*.bak
+/Client-Baseline/
+/support/db.sql
+/support/libtask.so
+/support/*randy*
+
+# Local/runtime files and secrets.
+__pycache__/
+*.pyc
+*.log
+*.pid
+.env
+*.key
+*.pem
+*.p12
+*.pfx
+*.ppk
+id_rsa*
+id_ed25519*

@@ -1,0 +1,191 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+server_root=/srv/pw155/staging/pw155
+state_root=/var/lib/pw155-ude
+editor_user="${SUDO_USER:-$(id -un)}"
+editor_home="$(getent passwd "$editor_user" | cut -d: -f6)"
+[[ -n "$editor_home" ]] || { echo "UDE_ERROR home user tidak ditemukan" >&2; exit 1; }
+upload_root="${editor_home}/.cache/ude-upload"
+service_script=/srv/pw155/tools/pw155-service.sh
+retain=20
+
+die() { echo "UDE_ERROR $*" >&2; exit 1; }
+valid_token() { [[ "${1:-}" =~ ^[a-f0-9]{32}$ ]]; }
+valid_id() { [[ "${1:-}" =~ ^[0-9]{8}-[0-9]{6}-[a-f0-9]{8}$ ]]; }
+
+asset_name() {
+  case "$1" in
+    "$server_root/gamed/config/elements.data") echo elements.data ;;
+    "$server_root/gamed/config/tasks.data") echo tasks.data ;;
+    "$server_root/gamed/config/gshopsev.data") echo gshopsev.data ;;
+    "$server_root/gamed/config/gshopsev1.data") echo gshopsev1.data ;;
+    "$server_root/gamed/config/gshopsev2.data") echo gshopsev2.data ;;
+    "$server_root/gamed/config/aipolicy.data") echo aipolicy.data ;;
+    "$server_root/gamed/config/extra_drops.sev") echo extra_drops.sev ;;
+    "$server_root/gamed/config/world/npcgen.data") echo world-npcgen.data ;;
+    "$server_root/gamed/config/a61/npcgen.data") echo a61-npcgen.data ;;
+    "$server_root/gdeliveryd/domain.sev") echo domain.sev ;;
+    "$server_root/gdeliveryd/domain2.sev") echo domain2.sev ;;
+    *) return 1 ;;
+  esac
+}
+
+server_was_running() {
+  local file pid
+  for file in /srv/pw155/runtime/pids/*.pid; do
+    [[ -s "$file" ]] || continue
+    pid="$(tr -cd '0-9' < "$file")"
+    [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null && return 0
+  done
+  return 1
+}
+
+health_check() {
+  local name file pid
+  for name in logservice authd uniquenamed gamedbd gacd gfactiond gdeliveryd glinkd gs01 is61; do
+    file="/srv/pw155/runtime/pids/${name}.pid"
+    [[ -s "$file" ]] || return 1
+    pid="$(tr -cd '0-9' < "$file")"
+    [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null || return 1
+  done
+}
+
+cleanup_old() {
+  find "$state_root/backups" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' |
+    sort -r | tail -n "+$((retain + 1))" | while IFS= read -r old; do
+      [[ -n "$old" ]] && rm -rf -- "$state_root/backups/$old"
+    done
+}
+
+command="${1:-}"
+case "$command" in
+  prepare)
+    token="${2:-}"
+    valid_token "$token" || die "token tidak valid"
+    install -d -o "$editor_user" -g "$editor_user" -m 0700 "$upload_root"
+    rm -rf -- "$upload_root/$token"
+    install -d -o "$editor_user" -g "$editor_user" -m 0700 "$upload_root/$token"
+    echo "UDE_PREPARED $token"
+    ;;
+
+  apply)
+    token="${2:-}" target="${3:-}" expected_hash="${4:-}" expected_size="${5:-}"
+    valid_token "$token" || die "token tidak valid"
+    [[ "$expected_hash" =~ ^[a-f0-9]{64}$ ]] || die "SHA-256 tidak valid"
+    [[ "$expected_size" =~ ^[1-9][0-9]*$ ]] || die "ukuran tidak valid"
+    asset="$(asset_name "$target")" || die "target tidak diizinkan"
+    upload="$upload_root/$token/payload"
+    [[ -f "$upload" && ! -L "$upload" ]] || die "upload tidak ditemukan"
+    [[ "$(stat -c '%s' "$upload")" == "$expected_size" ]] || die "ukuran upload berubah"
+    actual_hash="$(sha256sum "$upload" | awk '{print $1}')"
+    [[ "$actual_hash" == "$expected_hash" ]] || die "checksum upload tidak cocok"
+    [[ -f "$target" && ! -L "$target" ]] || die "target aktif tidak valid"
+
+    install -d -m 0700 "$state_root" "$state_root/backups"
+    exec 9>"$state_root/deploy.lock"
+    flock -n 9 || die "deployment lain sedang berjalan"
+    deployment_id="$(date -u +%Y%m%d-%H%M%S)-${token:0:8}"
+    backup_dir="$state_root/backups/$deployment_id"
+    install -d -m 0700 "$backup_dir"
+    cp -a -- "$target" "$backup_dir/original"
+    original_hash="$(sha256sum "$backup_dir/original" | awk '{print $1}')"
+    printf '%s\n%s\n%s\n%s\n' "$target" "$asset" "$original_hash" "$expected_hash" > "$backup_dir/manifest"
+
+    was_running=0
+    server_was_running && was_running=1
+    printf '%s\n' "$was_running" > "$backup_dir/was-running"
+    [[ "$was_running" == 0 ]] || "$service_script" stop
+
+    replacement="${target}.ude-new-${token}"
+    cleanup() { rm -f -- "$replacement"; rm -rf -- "$upload_root/$token"; }
+    trap cleanup EXIT
+    install -o "$(stat -c '%U' "$target")" -g "$(stat -c '%G' "$target")" \
+      -m "$(stat -c '%a' "$target")" "$upload" "$replacement"
+    [[ "$(sha256sum "$replacement" | awk '{print $1}')" == "$expected_hash" ]] || die "checksum staging akhir gagal"
+    mv -f -- "$replacement" "$target"
+    printf 'APPLIED\n' > "$backup_dir/status"
+
+    if [[ "$was_running" == 1 ]]; then
+      if ! "$service_script" start; then
+        "$service_script" stop || true
+        cp -a -- "$backup_dir/original" "$target"
+        printf 'AUTO_ROLLED_BACK\n' > "$backup_dir/status"
+        "$service_script" start || true
+        die "health startup gagal; file lama sudah dipulihkan otomatis"
+      fi
+      if ! health_check; then
+        "$service_script" stop || true
+        cp -a -- "$backup_dir/original" "$target"
+        printf 'AUTO_ROLLED_BACK\n' > "$backup_dir/status"
+        "$service_script" start || true
+        die "health check gagal; file lama sudah dipulihkan otomatis"
+      fi
+    fi
+    if [[ "$was_running" == 1 ]]; then
+      printf 'HEALTHY\n' > "$backup_dir/status"
+    else
+      printf 'APPLIED_STOPPED\n' > "$backup_dir/status"
+    fi
+    cleanup_old
+    echo "UDE_DEPLOYED $deployment_id $asset $expected_hash"
+    ;;
+
+  list)
+    install -d -m 0700 "$state_root/backups"
+    echo -e 'UDE_HISTORY\tID\tUTC\tASSET\tSTATUS\tDEPLOYED_SHA256'
+    find "$state_root/backups" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -r | head -n "$retain" |
+      while IFS= read -r id; do
+        dir="$state_root/backups/$id"
+        [[ -s "$dir/manifest" ]] || continue
+        asset="$(sed -n '2p' "$dir/manifest")"
+        deployed="$(sed -n '4p' "$dir/manifest")"
+        status="$(tr -d '\r\n' < "$dir/status" 2>/dev/null || echo UNKNOWN)"
+        utc="${id:0:8}T${id:9:6}Z"
+        echo -e "UDE_HISTORY\t$id\t$utc\t$asset\t$status\t$deployed"
+      done
+    ;;
+
+  rollback)
+    id="${2:-}"
+    valid_id "$id" || die "ID deployment tidak valid"
+    dir="$state_root/backups/$id"
+    [[ -s "$dir/manifest" && -f "$dir/original" ]] || die "backup tidak ditemukan"
+    target="$(sed -n '1p' "$dir/manifest")"
+    asset="$(asset_name "$target")" || die "target backup tidak diizinkan"
+    [[ -f "$target" && ! -L "$target" ]] || die "target aktif tidak valid"
+    original_hash="$(sed -n '3p' "$dir/manifest")"
+    [[ "$(sha256sum "$dir/original" | awk '{print $1}')" == "$original_hash" ]] || die "checksum backup rusak"
+
+    exec 9>"$state_root/deploy.lock"
+    flock -n 9 || die "deployment lain sedang berjalan"
+    was_running=0
+    server_was_running && was_running=1
+    [[ "$was_running" == 0 ]] || "$service_script" stop
+    safety="$dir/pre-rollback-$(date -u +%Y%m%d-%H%M%S)"
+    cp -a -- "$target" "$safety"
+    cp -a -- "$dir/original" "$target"
+    if [[ "$was_running" == 1 ]]; then
+      if ! "$service_script" start || ! health_check; then
+        "$service_script" stop || true
+        cp -a -- "$safety" "$target"
+        "$service_script" start || true
+        die "rollback gagal health check; kondisi sebelum rollback dikembalikan"
+      fi
+    fi
+    printf 'ROLLED_BACK\n' > "$dir/status"
+    echo "UDE_ROLLED_BACK $id $asset $original_hash"
+    ;;
+
+  status)
+    "$service_script" status
+    ;;
+
+  restart)
+    "$service_script" restart
+    ;;
+
+  *)
+    die "pemakaian: $0 {prepare|apply|list|rollback|status|restart}"
+    ;;
+esac

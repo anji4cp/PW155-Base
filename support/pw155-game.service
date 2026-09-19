@@ -1,0 +1,16 @@
+[Unit]
+Description=Perfect World 1.5.5 private server
+After=network-online.target mariadb.service
+Wants=network-online.target
+Requires=mariadb.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/srv/pw155/tools/pw155-service.sh start
+ExecStop=/srv/pw155/tools/pw155-service.sh stop
+TimeoutStartSec=300
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target
