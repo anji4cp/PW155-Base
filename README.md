@@ -86,6 +86,26 @@ memakai nama map (misalnya World Utama dan Celestial Vale) dengan alias server
 tetap ditampilkan. Paket `web.tar.gz` lokal dan checksum-nya harus diperbarui
 bersama source PWPanel sebelum instalasi ulang.
 
+World utama memakai pembatas `nocash_resurrect` sebagai baseline aman. Tombol
+revive di tempat berbasis item/cash tidak ditawarkan selama dukungan
+Resurrection Scroll belum divalidasi, tetapi revive biasa ke kota/save point
+tetap tersedia. Periksa atau terapkan pengaturan ini pada server lama dengan:
+
+```bash
+sudo /srv/pw155/tools/pw155-configure-safe-revive.sh --check
+sudo /srv/pw155/tools/pw155-configure-safe-revive.sh --apply
+sudo /srv/pw155/tools/pw155-service.sh stop-map gs01
+sudo /srv/pw155/tools/pw155-service.sh start-map gs01
+```
+
+Pada instalasi yang sudah berjalan, cara termudah dari Windows adalah klik dua
+kali `APPLY-SAFE-REVIVE.cmd`. Skrip meminta konfirmasi sebelum me-restart World
+Utama karena karakter yang sedang online akan terputus.
+
+Jangan mengaktifkan kembali revive di tempat hanya dengan menampilkan tombol.
+Item, format data client/server, konsumsi item, dan respons protokol harus diuji
+bersama agar kegagalan tidak menjatuhkan client atau map.
+
 ## Konfigurasi Proxmox yang diuji
 
 VM 100 memakai Ubuntu Server 20.04.6, BIOS SeaBIOS, machine `i440fx`, SCSI

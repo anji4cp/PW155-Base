@@ -122,6 +122,7 @@ for script in \
   pw155-preflight.sh \
   pw155-install-compat.sh \
   pw155-service.sh \
+  pw155-configure-safe-revive.sh \
   pw155-import-auth-schema.sh \
   pw155-verify-db.sh \
   pw155-create-account.sh \

@@ -81,6 +81,13 @@ perl -pi -e 's/^(\s*logic_threads\s*=\s*)\d+/${1}2/' \
   "$stage_root/gamed/gs.conf"
 unset PW_RUNTIME_ROOT_REWRITE PW_STAGE_ROOT_REWRITE
 
+# Client baseline tidak boleh menawarkan revive di tempat berbasis item/cash
+# pada world utama sebelum handler dan item Resurrection Scroll tervalidasi.
+# Pembatas ini dikirim oleh map kepada client sehingga aksi yang belum aman
+# tidak dapat dipilih, sementara revive biasa ke kota/save point tetap ada.
+"$(dirname "$0")/pw155-configure-safe-revive.sh" --apply \
+  "$stage_root/gamed/gs.conf"
+
 # Kredensial database harus diberikan sebagai environment dan tidak memiliki
 # karakter yang membutuhkan XML escaping.
 : "${PW_DB_USER:?Set PW_DB_USER sebelum menjalankan staging}"
