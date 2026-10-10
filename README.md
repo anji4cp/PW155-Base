@@ -86,6 +86,12 @@ memakai nama map (misalnya World Utama dan Celestial Vale) dengan alias server
 tetap ditampilkan. Paket `web.tar.gz` lokal dan checksum-nya harus diperbarui
 bersama source PWPanel sebelum instalasi ulang.
 
+Deployment publik saat ini memakai `pwku.cloud` untuk portal pemain,
+`panel.pwku.cloud` untuk akses akun, dan `game.pwku.cloud:29000` untuk gateway
+game. Client yang didukung masih PW 1.5.5 EN; connection pack bukan terjemahan
+Indonesia lengkap. Reverse proxy VPS meneruskan web melalui WireGuard ke
+`10.77.0.2:8080`, sedangkan server Python tidak dibuka langsung ke internet.
+
 World utama memakai pembatas `nocash_resurrect` sebagai baseline aman. Tombol
 revive di tempat berbasis item/cash tidak ditawarkan selama dukungan
 Resurrection Scroll belum divalidasi, tetapi revive biasa ke kota/save point
